@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/hupimaodaren/xianzhi-mcp)](https://github.com/hupimaodaren/xianzhi-mcp/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-把西安地方志 App 自带的 **6670 万字**全文知识库接入你的 Agent（Trae / Claude Desktop / Cursor / Windsurf 等）。
+把西安地方志 App 自带的 **6670 万字**全文知识库接入你的 Agent（WorkBuddy / DeepSeek Harness / Trae / Claude Desktop / Cursor / Windsurf 等）。
 
 **全离线运行，不需要联网，不需要 API Key。**
 
@@ -15,11 +15,11 @@
 
 ### 方式 A：从本仓库下载（推荐单独使用 MCP 的用户）
 
-在 [Releases](https://github.com/hupimaodaren/xianzhi-mcp/releases) 下载 **`xianzhi.db`**（166.6 MB，文字版），放到 `xianzhi-mcp.exe` **同级目录**即可被自动发现。
+在 [Releases](https://github.com/hupimaodaren/xianzhi-mcp/releases) 下载 **`xianzhi.db`**（v0.1.1 起为 v2 压缩版，**60.7 MB**，文字版），放到 `xianzhi-mcp.exe` **同级目录**即可被自动发现。
 
 > 该库由 [西安地方志 App](https://github.com/hupimaodaren/xianzhi-app) 的公开数据整理而成：38,978 篇 / 66,343,013 字，来源为政府公开信息（xadfz.xa.gov.cn）。
 >
-> 下载校验（SHA256）：`xianzhi.db` = `a4b694afbae542a95319f150fc0b26cffdf61474496bbd1f248f23e424428bf1`；`xianzhi-mcp.exe` = `4302a7dd517b5069e7b53672927a5a8684b7de506b60ee36464dfca0976619e2`。
+> 下载校验（SHA256，v0.1.1）：`xianzhi.db` = `490cc846941ede592ad87c250146c16e3b0abfc4756401f220f2229d5af3b983`；`xianzhi-mcp.exe` = `ce3f07fb2eecccaa5ac80f482a0362bf054a601d79471d1f3f85f8db2f4bbc9d`。
 
 ### 方式 B：用西安地方志 Windows 版自带的数据库
 
@@ -44,9 +44,9 @@
 > **优先图文版**：目录中同时存在 `xianzhi_img.db` 与 `xianzhi.db` 时，自动选图文版（字数更多）。
 
 > **数据库格式自动识别**：本工具同时支持两种库格式，无需任何配置——
-> - **v1**：正文直存 `arts.body`（v0.3.2 及更早 App 安装包、本仓库 Release 下载的 `xianzhi.db`，约 166.6 MB）；
-> - **v2**：正文按块 zlib 压缩存于 `blocks` 表（西安地方志 App 轻量化版内置，约 61 MB），
->   由本工具解压后检索，结果与 v1 完全一致（已做 38,978 篇逐篇校验）。
+> - **v2**：正文按块 zlib 压缩存于 `blocks` 表（本仓库 v0.1.1 起 Release 下载的 `xianzhi.db` 约 60.7 MB；西安地方志 App v0.4.0 起内置），
+>   由本工具解压后检索，结果与 v1 完全一致（已做 38,978 篇逐篇校验）；
+> - **v1**：正文直存 `arts.body`（v0.3.2 及更早 App 安装包自带，约 166.6 MB）。
 > 区别只在首次全库检索稍慢约 0.5 秒（解压开销），查询接口与返回结构不变。
 
 ---
@@ -81,6 +81,56 @@
 > 想强制指定，用 `--db` 或 `XIANZHI_DB`。
 
 ### 第 3 步：接入你的 Agent
+
+#### WorkBuddy（腾讯）
+
+WorkBuddy（5.3 及以上版本）通过用户目录下的 `mcp.json` 添加自定义 MCP Server：
+
+| 平台 | 配置文件路径 |
+|------|------|
+| Windows | `C:\Users\<用户名>\.workbuddy\mcp.json` |
+| macOS / Linux | `~/.workbuddy/mcp.json` |
+
+> 注意文件名是 `mcp.json`（不是 `.mcp.json`）。
+
+写入以下内容（把路径换成你自己的 exe 路径，已有配置请**合并**进 `mcpServers`，不要覆盖）：
+
+```json
+{
+  "mcpServers": {
+    "xianzhi-knowledge-base": {
+      "command": "D:/xianzhi-app/xianzhi-mcp.exe",
+      "args": []
+    }
+  }
+}
+```
+
+保存后回到 WorkBuddy「连接器管理」页面，找到该 Server 点击「信任」，再新开会话（或重启当前会话），7 个地方志工具即被注入。
+
+#### DeepSeek Harness（DSH）
+
+DeepSeek Harness 目前处于开发者预览阶段，通过 MCP Apps 插件接入第三方 stdio Server（社区插件 [`@creative-dswork/dsh-uni-editor`](https://www.npmjs.com/package/@creative-dswork/dsh-uni-editor)，即原 dsh-mcp-apps）：
+
+```bash
+# 1. 安装插件到 web profile
+dsh plugin --profile web add @creative-dswork/dsh-uni-editor
+```
+
+在 `$DSH_HOME/profiles/web/cordis.patch.yml` 中加入（YAML；路径建议用正斜杠）：
+
+```yaml
+- id: mcp-apps
+  config:
+    servers:
+      - serverName: xianzhi-knowledge-base   # 只能含字母数字下划线连字符，最长 32
+        transport: stdio
+        command: "D:/xianzhi-app/xianzhi-mcp.exe"
+        args: []
+        forwardWorkspace: false              # 本服务只读本地库，不需要工作区
+```
+
+随后 `dsh web` 启动，工具列表会自动同步为 `xianzhi_*` 系列。
 
 #### Trae IDE
 
@@ -170,7 +220,7 @@ xianzhi_stats                                    了解全貌
 方式 A：把 `xianzhi-mcp.exe` 与 `xianzhi.db` 放**同一目录**；方式 B：把 exe 放到便携版解压目录根目录旁，或让它自动读 `%APPDATA%\xianzhi\data\`。也可直接设置 `XIANZHI_DB=D:/你的路径/xianzhi.db`。
 
 **Q: 没装西安地方志 App，能用吗？**
-能。在 [Releases](https://github.com/hupimaodaren/xianzhi-mcp/releases) 单独下载 `xianzhi.db`（166.6 MB），与 exe 放同一目录即可，**无需安装 App**。
+能。在 [Releases](https://github.com/hupimaodaren/xianzhi-mcp/releases) 单独下载 `xianzhi.db`（v0.1.1 起 60.7 MB 的 v2 压缩版），与 exe 放同一目录即可，**无需安装 App**。
 
 **Q: 搜索结果太少？**
 `xianzhi_search` 是精确子串匹配（不分大小写、不分词）。换个关键词，比如搜「长安」而非「唐代长安」。
