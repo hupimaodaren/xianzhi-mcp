@@ -7,24 +7,58 @@
 
 **全离线运行，不需要联网，不需要 API Key。**
 
-> 本工具只提供查询接口，**不包含、不再分发任何志书数据**。数据来自 [西安地方志 App](https://github.com/hupimaodaren/xianzhi-app) 安装后本机已有的 `xianzhi.db`。
+> 本工具只提供查询接口，数据来源见下方「数据库从哪来」。
+
+---
+
+## 数据库从哪来（二选一）
+
+### 方式 A：从本仓库下载（推荐单独使用 MCP 的用户）
+
+在 [Releases](https://github.com/hupimaodaren/xianzhi-mcp/releases) 下载 **`xianzhi.db`**（166.6 MB，文字版），放到 `xianzhi-mcp.exe` **同级目录**即可被自动发现。
+
+> 该库由 [西安地方志 App](https://github.com/hupimaodaren/xianzhi-app) 的公开数据整理而成：38,978 篇 / 66,343,013 字，来源为政府公开信息（xadfz.xa.gov.cn）。
+
+### 方式 B：用西安地方志 Windows 版自带的数据库
+
+如果你已经装了 [西安地方志 App](https://github.com/hupimaodaren/xianzhi-app)（EXE 安装版或便携版），数据库**已经在你本机**，无需再下载：
+
+| App 安装方式 | 数据库位置 |
+|-------------|-----------|
+| **EXE 安装版** | `%APPDATA%\xianzhi\data\` |
+| **便携版**（解压即用） | 解压目录 `app/resources/data/` |
+
+`xianzhi-mcp.exe` 会自动发现它（优先级见「第 2 步」），直接进入「第 3 步」接入 Agent 即可。
+
+### 两个来源对比
+
+| | 本仓库下载 | App Windows 版自带 |
+|---|---|---|
+| 文件 | `xianzhi.db`（文字版） | `xianzhi.db`（文字版）/ `xianzhi_img.db`（图文版） |
+| 篇数 | 38,978 | 38,978（两版相同） |
+| 字数 | 66,343,013 | 66,343,013 / 66,662,453 |
+| 适合 | 只想让 Agent 检索，不装 App | 已装 App，或需要配图版 |
+
+> **优先图文版**：目录中同时存在 `xianzhi_img.db` 与 `xianzhi.db` 时，自动选图文版（字数更多）。
 
 ---
 
 ## 3 步上手
 
-### 第 1 步：拿到 exe
+### 第 1 步：拿到 exe 和数据库
 
-在 [Releases](https://github.com/hupimaodaren/xianzhi-mcp/releases) 下载 `xianzhi-mcp.exe`（单文件，约 31 MB，**无需安装 Python**）。
+- **exe**：在 [Releases](https://github.com/hupimaodaren/xianzhi-mcp/releases) 下载 `xianzhi-mcp.exe`（单文件，约 31 MB，**无需安装 Python**）。
+- **数据库**：采用上节「方式 A」，就在同一 Releases 页下载 `xianzhi.db`；采用「方式 B」，则已在本机，跳过。
 
 ### 第 2 步：放对位置
 
-把 `xianzhi-mcp.exe` 放到能看到 `xianzhi.db` 的地方，exe 会**自动发现**数据库：
+把 `xianzhi-mcp.exe`（以及方式 A 下载的 `xianzhi.db`）放到一起，exe 会**自动发现**数据库：
 
-| 安装方式 | 放哪里最省事 |
+| 你的情况 | 放哪里最省事 |
 |---------|-------------|
-| **便携版**（解压即用） | 放到便携版解压目录的**根目录**，与 `xianzhi.exe` 同级 |
-| **EXE 安装版** | 放哪里都行，exe 会自动读 `%APPDATA%\xianzhi\data\` |
+| **方式 A**（本仓库下载 db） | exe 与 `xianzhi.db` 放**同一个目录** |
+| **方式 B · 便携版** | 放到便携版解压目录的**根目录**，与 `xianzhi.exe` 同级 |
+| **方式 B · EXE 安装版** | 放哪里都行，exe 会自动读 `%APPDATA%\xianzhi\data\` |
 
 自动发现优先级（找不到才往下走）：
 
@@ -125,7 +159,10 @@ xianzhi_stats                                    了解全貌
 ## 常见问题
 
 **Q: Agent 报找不到 db？**
-把 exe 放到便携版解压目录根目录旁，或设置 `XIANZHI_DB=D:/你的路径/xianzhi_img.db`。
+方式 A：把 `xianzhi-mcp.exe` 与 `xianzhi.db` 放**同一目录**；方式 B：把 exe 放到便携版解压目录根目录旁，或让它自动读 `%APPDATA%\xianzhi\data\`。也可直接设置 `XIANZHI_DB=D:/你的路径/xianzhi.db`。
+
+**Q: 没装西安地方志 App，能用吗？**
+能。在 [Releases](https://github.com/hupimaodaren/xianzhi-mcp/releases) 单独下载 `xianzhi.db`（166.6 MB），与 exe 放同一目录即可，**无需安装 App**。
 
 **Q: 搜索结果太少？**
 `xianzhi_search` 是精确子串匹配（不分大小写、不分词）。换个关键词，比如搜「长安」而非「唐代长安」。
@@ -198,3 +235,9 @@ XIANZHI_DB=D:/xxx/xianzhi_img.db xianzhi-mcp.exe
 
 代码采用 [MIT License](LICENSE)，Copyright (c) 2026 西安地名协会。
 志书正文与配图版权归西安市地方志办公室所有。
+
+## 数据来源
+
+`xianzhi.db` 随本仓库 Release 一并分发，供**未安装 App 的用户**单独下载使用；数据来自政府公开信息
+（西安市地方志办公室 / xadfz.xa.gov.cn），正文与配图版权归西安市地方志办公室所有，仅供检索使用。
+若已安装 [西安地方志 App](https://github.com/hupimaodaren/xianzhi-app)，可直接使用其自带的数据库，无需重复下载。
