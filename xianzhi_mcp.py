@@ -6,7 +6,13 @@
 数据库：sqlite3 直接读取 xianzhi.db / xianzhi_img.db
 路径层级：分类(cat) → 书名(book.title) → 卷次(vol) → path(/) → 篇目(arts)
 段落分隔：\\n\\n 分割的段落作为自然分块
-检索：instr 全表扫描（一期不加 FTS5）
+检索：全库子串匹配（一期不加 FTS5）
+
+库格式（自动探测，双格式兼容）：
+  v1：body 直存 arts 表（v0.3.2 及更早安装包内置）
+  v2：正文按篇对齐拼接成 256KB 块、整块 zlib-9 压缩存于 blocks 表；
+      arts 只存位置（blk/off/nb）；meta.format_version=2（轻量化版内置）。
+      正文由本模块解压后使用，检索语义与 v1 保持一致。
 
 自动发现 db 路径（优先级与桌面端一致）：
   1. --db 命令行参数 或 XIANZHI_DB 环境变量（显式指定文件）
@@ -36,6 +42,8 @@ import os
 import platform
 import sqlite3
 import sys
+import zlib
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -72,12 +80,107 @@ class DBHandle:
         conn = sqlite3.connect(path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA read_only = 1")
-        return cls(conn)
+        h = cls(conn)
+        h.format = h._detect_format()
+        h._blocks: "OrderedDict[int, bytes]" = OrderedDict()
+        h._chars: dict[int, int] | None = None
+        return h
+
+    # -- 库格式（v1 body 直存 / v2 blocks zlib 压缩）----------------------
+
+    def _detect_format(self) -> int:
+        """meta.format_version=2 为压缩格式；无 meta 表（查询报错）按 v1。"""
+        try:
+            r = self.conn.execute(
+                "SELECT v FROM meta WHERE k = 'format_version'").fetchone()
+        except sqlite3.OperationalError:
+            return 1
+        if r is None:
+            return 1
+        try:
+            return int(r[0])
+        except (TypeError, ValueError):
+            return 1
+
+    def _block(self, blk: int) -> bytes:
+        """解压正文块，保留最近 8 块（每块解压后约 256KB）。"""
+        cached = self._blocks.get(blk)
+        if cached is not None:
+            self._blocks.move_to_end(blk)
+            return cached
+        r = self.conn.execute(
+            "SELECT data FROM blocks WHERE blk = ?", (blk,)).fetchone()
+        if r is None:
+            raise KeyError(f"正文块缺失 blk={blk}")
+        raw = zlib.decompress(r[0])
+        self._blocks[blk] = raw
+        while len(self._blocks) > 8:
+            self._blocks.popitem(last=False)
+        return raw
+
+    def _v2_body(self, blk: int, off: int, nb: int) -> str:
+        return self._block(blk)[off:off + nb].decode("utf-8")
+
+    def get_body_text(self, article_id: int) -> str:
+        """单篇正文文本（双格式）。"""
+        if self.format == 1:
+            r = self.conn.execute(
+                "SELECT body FROM arts WHERE id = ?", (article_id,)).fetchone()
+            return (r[0] if r and r[0] else "") if r else ""
+        r = self.conn.execute(
+            "SELECT blk, off, nb FROM arts WHERE id = ?", (article_id,)).fetchone()
+        if r is None:
+            return ""
+        return self._v2_body(r[0], r[1], r[2])
+
+    def _ensure_chars(self) -> dict[int, int]:
+        """v2：每篇字符数（与 v1 LENGTH(body) 语义一致），全量解压一遍后缓存。"""
+        if self._chars is None:
+            chars: dict[int, int] = {}
+            for aid, blk, off, nb in self.conn.execute(
+                    "SELECT id, blk, off, nb FROM arts ORDER BY id"):
+                chars[aid] = len(self._v2_body(blk, off, nb))
+            self._chars = chars
+        return self._chars
+
+    def _body_chars_expr_sql(self) -> str:
+        """v1 用于 SQL 聚合的字符数表达式（v2 不可用，须走 _ensure_chars）。"""
+        return "LENGTH(a.body)"
 
     # -- 基础查询 --------------------------------------------------------
 
     def list_categories(self) -> list[dict[str, Any]]:
         """返回 6 大分类及统计。"""
+        if self.format == 2:
+            chars = self._ensure_chars()
+            cur = self.conn.execute(
+                """
+                SELECT b.cat, b.id,
+                       (SELECT COUNT(*) FROM arts a WHERE a.book = b.id) AS article_count
+                FROM books b
+                """
+            )
+            agg: dict[str, dict[str, int]] = {}
+            for r in cur.fetchall():
+                a = agg.setdefault(r["cat"], {"book_count": 0, "article_count": 0, "total_chars": 0})
+                a["book_count"] += 1
+                a["article_count"] += r["article_count"]
+            # 聚合每书字符数（chars 缓存已含全部篇目）
+            book_chars: dict[str, int] = {}
+            for aid, book in self.conn.execute("SELECT id, book FROM arts"):
+                book_chars[book] = book_chars.get(book, 0) + chars.get(aid, 0)
+            for r in self.conn.execute("SELECT cat, id FROM books"):
+                if r["id"] in book_chars:
+                    agg[r["cat"]]["total_chars"] += book_chars[r["id"]]
+            out = []
+            for cat in CATEGORY_ORDER:
+                if cat in agg:
+                    a = agg[cat]
+                    out.append({"name": cat, **a})
+            for cat, a in agg.items():
+                if cat not in CATEGORY_ORDER:
+                    out.append({"name": cat, **a})
+            return out
         cur = self.conn.execute(
             """
             SELECT b.cat,
@@ -113,6 +216,32 @@ class DBHandle:
 
     def list_books(self, category: str | None = None) -> list[dict[str, Any]]:
         """列出书目，可按分类过滤。"""
+        if self.format == 2:
+            chars = self._ensure_chars()
+            book_chars: dict[str, int] = {}
+            for aid, book in self.conn.execute("SELECT id, book FROM arts"):
+                book_chars[book] = book_chars.get(book, 0) + chars.get(aid, 0)
+            sql = """
+                SELECT b.id, b.title, b.cat, b.n,
+                       (SELECT COUNT(*) FROM arts a WHERE a.book = b.id) AS article_count
+                FROM books b
+            """
+            params: list[Any] = []
+            if category:
+                sql += " WHERE b.cat = ?"
+                params.append(category)
+            sql += " GROUP BY b.id ORDER BY b.seq, b.id"
+            return [
+                {
+                    "id": r["id"],
+                    "title": r["title"],
+                    "category": r["cat"],
+                    "volume_count": r["n"],
+                    "article_count": r["article_count"],
+                    "total_chars": book_chars.get(r["id"], 0),
+                }
+                for r in self.conn.execute(sql, params)
+            ]
         sql = """
             SELECT b.id, b.title, b.cat, b.n,
                    COUNT(a.id)         AS article_count,
@@ -209,6 +338,9 @@ class DBHandle:
         if not query or limit <= 0:
             return {"total": 0, "query": query, "hits": []}
 
+        if self.format == 2:
+            return self._search_v2(query, category, book_id, limit, offset)
+
         where_parts = [
             "(a.title LIKE ? OR a.body LIKE ?)",
         ]
@@ -280,8 +412,81 @@ class DBHandle:
             "hits": hits,
         }
 
+    def _search_v2(
+        self,
+        query: str,
+        category: str | None,
+        book_id: str | None,
+        limit: int,
+        offset: int,
+    ) -> dict[str, Any]:
+        """v2 压缩库检索：SQL 取元数据，Python 解压块后子串匹配。
+
+        语义与 v1 的 LIKE 检索保持一致：ASCII 大小写不敏感、标题命中
+        优先、同组内按 id 升序；片段仍由 _build_snippet 生成。
+        """
+        q = query.lower()
+        title_hits: list[sqlite3.Row] = []
+        body_hits: list[sqlite3.Row] = []
+        sql = """
+            SELECT a.id, a.title, a.book, a.vol, a.path, b.title AS book_title,
+                   b.cat, a.blk, a.off, a.nb
+            FROM arts a
+            JOIN books b ON b.id = a.book
+            ORDER BY a.id
+        """
+        for r in self.conn.execute(sql):
+            if category and r["cat"] != category:
+                continue
+            if book_id and r["book"] != book_id:
+                continue
+            if q in (r["title"] or "").lower():
+                title_hits.append(r)
+                continue
+            body = self._v2_body(r["blk"], r["off"], r["nb"])
+            if q in body.lower():
+                body_hits.append(r)
+        matches = title_hits + body_hits
+        total = len(matches)
+        hits = []
+        for r in matches[offset:offset + limit]:
+            body = self._v2_body(r["blk"], r["off"], r["nb"])
+            hits.append({
+                "article_id": r["id"],
+                "title": r["title"],
+                "vol": r["vol"],
+                "path": r["path"],
+                "book_id": r["book"],
+                "book_title": r["book_title"],
+                "category": r["cat"],
+                "body_length": len(body),
+                "snippet": _build_snippet(body, query),
+            })
+        return {
+            "total": total,
+            "returned": len(hits),
+            "offset": offset,
+            "query": query,
+            "hits": hits,
+        }
+
     def get_article(self, article_id: int) -> dict[str, Any] | None:
         """获取完整文章。"""
+        if self.format == 2:
+            cur = self.conn.execute(
+                """
+                SELECT a.id, a.title, a.book, b.title AS book_title, b.cat,
+                       a.vol, a.path, a.date, a.blk, a.off, a.nb
+                FROM arts a JOIN books b ON b.id = a.book
+                WHERE a.id = ?
+                """,
+                (article_id,),
+            )
+            r = cur.fetchone()
+            if not r:
+                return None
+            body = self._v2_body(r["blk"], r["off"], r["nb"])
+            return self._article_payload(r, body)
         cur = self.conn.execute(
             """
             SELECT a.id, a.title, a.book, b.title AS book_title, b.cat,
@@ -295,6 +500,9 @@ class DBHandle:
         if not r:
             return None
         body = r["body"] or ""
+        return self._article_payload(r, body)
+
+    def _article_payload(self, r: sqlite3.Row, body: str) -> dict[str, Any]:
         paragraphs = _split_paragraphs(body)
         return {
             "article_id": r["id"],
@@ -318,20 +526,36 @@ class DBHandle:
         paragraph_count: int = DEFAULT_ARTICLE_CHUNK_SIZE,
     ) -> dict[str, Any] | None:
         """分段拉取文章，用于长文按需获取。"""
-        cur = self.conn.execute(
-            """
-            SELECT a.id, a.title, a.book, b.title AS book_title, b.cat,
-                   a.vol, a.path, a.date, a.body
-            FROM arts a JOIN books b ON b.id = a.book
-            WHERE a.id = ?
-            """,
-            (article_id,),
-        )
-        r = cur.fetchone()
-        if not r:
-            return None
+        if self.format == 2:
+            cur = self.conn.execute(
+                """
+                SELECT a.id, a.title, a.book, b.title AS book_title, b.cat,
+                       a.vol, a.path, a.date, a.blk, a.off, a.nb
+                FROM arts a JOIN books b ON b.id = a.book
+                WHERE a.id = ?
+                """,
+                (article_id,),
+            )
+            r = cur.fetchone()
+            if not r:
+                return None
+            body = self._v2_body(r["blk"], r["off"], r["nb"])
+        else:
+            cur = self.conn.execute(
+                """
+                SELECT a.id, a.title, a.book, b.title AS book_title, b.cat,
+                       a.vol, a.path, a.date, a.body
+                FROM arts a JOIN books b ON b.id = a.book
+                WHERE a.id = ?
+                """,
+                (article_id,),
+            )
+            r = cur.fetchone()
+            if not r:
+                return None
+            body = r["body"] or ""
 
-        paragraphs = _split_paragraphs(r["body"] or "")
+        paragraphs = _split_paragraphs(body)
         total = len(paragraphs)
         start = max(0, min(start_paragraph, total))
         end = min(start + max(1, paragraph_count), total)
@@ -348,7 +572,7 @@ class DBHandle:
                 "path": r["path"],
             },
             "total_paragraphs": total,
-            "total_chars": len(r["body"] or ""),
+            "total_chars": len(body),
             "chunk_start": start,
             "chunk_end": end,
             "chunk_count": end - start,
@@ -358,6 +582,19 @@ class DBHandle:
 
     def get_stats(self) -> dict[str, Any]:
         """全库统计。"""
+        if self.format == 2:
+            chars = self._ensure_chars()
+            n_articles = self.conn.execute("SELECT COUNT(*) FROM arts").fetchone()[0]
+            return {
+                "total_books": self.conn.execute(
+                    "SELECT COUNT(*) FROM books").fetchone()[0],
+                "total_articles": n_articles,
+                "total_chars": sum(chars.get(aid, 0)
+                                   for aid, in self.conn.execute("SELECT id FROM arts")),
+                "categories": self.list_categories(),
+                "category_order": CATEGORY_ORDER,
+                "db_format": 2,
+            }
         cur = self.conn.execute(
             """
             SELECT COUNT(DISTINCT b.id)  AS books,

@@ -43,6 +43,12 @@
 
 > **优先图文版**：目录中同时存在 `xianzhi_img.db` 与 `xianzhi.db` 时，自动选图文版（字数更多）。
 
+> **数据库格式自动识别**：本工具同时支持两种库格式，无需任何配置——
+> - **v1**：正文直存 `arts.body`（v0.3.2 及更早 App 安装包、本仓库 Release 下载的 `xianzhi.db`，约 166.6 MB）；
+> - **v2**：正文按块 zlib 压缩存于 `blocks` 表（西安地方志 App 轻量化版内置，约 61 MB），
+>   由本工具解压后检索，结果与 v1 完全一致（已做 38,978 篇逐篇校验）。
+> 区别只在首次全库检索稍慢约 0.5 秒（解压开销），查询接口与返回结构不变。
+
 ---
 
 ## 3 步上手
@@ -223,7 +229,7 @@ XIANZHI_DB=D:/xxx/xianzhi_img.db xianzhi-mcp.exe
 
 ## 技术说明
 
-- **数据库**：SQLite（`books` + `arts` 两表），`sqlite3` 标准库直读，无第三方依赖
+- **数据库**：SQLite（`books` + `arts` 两表；v2 压缩格式另含 `meta`/`blocks` 表），`sqlite3` 标准库直读 + `zlib` 解压，无第三方依赖
 - **检索**：`LIKE` 全表扫描（38978 篇约 1–3 秒）；标题命中排在正文命中之前
 - **分块**：正文按 `\n\n` 分割为段落，长文用 `xianzhi_get_article_chunked` 按需拉取
 - **打包**：PyInstaller `--onefile`，内置 Python 运行时，单文件分发
