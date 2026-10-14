@@ -1,0 +1,78 @@
+{
+  "_说明": "西安地方志 MCP Server 接入配置模板。按你的 Agent/Harness 选对应片段，复制到对应配置文件即可。",
+  "_exe_path": "请替换为你自己的 xianzhi-mcp.exe 完整路径，例如 D:/xianzhi-mcp/xianzhi-mcp.exe",
+  "_db_note": "db 路径不传会自动发现（优先便携版同级 → app/resources/data → %APPDATA%/xianzhi/data），一般不用管",
+
+  "claude_desktop": {
+    "_文件位置": "%APPDATA%/Claude/claude_desktop_config.json",
+    "json_block": {
+      "mcpServers": {
+        "xianzhi-knowledge-base": {
+          "command": "D:/xianzhi-mcp/xianzhi-mcp.exe",
+          "args": [],
+          "env": {
+            "_注1": "可选。不传则自动发现 db",
+            "XIANZHI_DB": "D:/西安地方志/便携版/xianzhi_img.db"
+          }
+        }
+      }
+    }
+  },
+
+  "trae_ide": {
+    "_文件位置": "项目根目录 .trae/mcp.json 或 Trae 设置 → MCP Servers",
+    "_格式": "与 Claude Desktop 相同的 mcpServers 结构",
+    "json_block": {
+      "mcpServers": {
+        "xianzhi-knowledge-base": {
+          "command": "D:/xianzhi-mcp/xianzhi-mcp.exe",
+          "args": []
+        }
+      }
+    }
+  },
+
+  "cursor": {
+    "_位置": "Settings → MCP Tools → Add New MCP Server",
+    "_type": "command",
+    "command": "D:/xianzhi-mcp/xianzhi-mcp.exe",
+    "args": [],
+    "name": "xianzhi-knowledge-base"
+  },
+
+  "windsurf_codeium": {
+    "_位置": "Settings → MCP Servers → Add Server",
+    "json_block": {
+      "xianzhi-knowledge-base": {
+        "type": "stdio",
+        "command": "D:/xianzhi-mcp/xianzhi-mcp.exe",
+        "args": []
+      }
+    }
+  },
+
+  "sse_mode": {
+    "_场景": "多 Agent 共享同一台 db 读取、远程访问",
+    "_启动": "xianzhi-mcp.exe --transport sse",
+    "_默认端口": "自动由 FastMCP 绑定（可用环境变量覆盖）",
+    "_客户端接入": {
+      "type": "sse",
+      "url": "http://localhost:8000/sse"
+    }
+  },
+
+  "agent使用指南": {
+    "工具列表": [
+      "xianzhi_stats              - 知识库全貌统计",
+      "xianzhi_list_categories    - 六大分类",
+      "xianzhi_list_books         - 书目（可按分类过滤）",
+      "xianzhi_get_book_toc       - 某书目录结构",
+      "xianzhi_search             - 全文检索（标题命中优先）",
+      "xianzhi_get_article        - 完整文章（短文够用）",
+      "xianzhi_get_article_chunked - 分段拉取（长文首选）"
+    ],
+    "推荐调用顺序": "stats → list_categories → search(query) → get_article_chunked(id, 0, 10)",
+    "db选择": "自动优先 xianzhi_img.db（图文版），没有则 xianzhi.db",
+    "版本说明": "同时安装了文字版和图文版？exe 默认自动发现目录里的 xianzhi_img.db，用 XIANZHI_DB 可强制切换"
+  }
+}

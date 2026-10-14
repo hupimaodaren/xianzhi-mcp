@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# PyInstaller 构建产物
+build/
+dist/
+*.spec
+
+# 本地数据（绝不入库，db 由用户自备）
+*.db
+*.db-journal
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
