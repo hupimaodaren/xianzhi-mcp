@@ -18,6 +18,8 @@
 在 [Releases](https://github.com/hupimaodaren/xianzhi-mcp/releases) 下载 **`xianzhi.db`**（166.6 MB，文字版），放到 `xianzhi-mcp.exe` **同级目录**即可被自动发现。
 
 > 该库由 [西安地方志 App](https://github.com/hupimaodaren/xianzhi-app) 的公开数据整理而成：38,978 篇 / 66,343,013 字，来源为政府公开信息（xadfz.xa.gov.cn）。
+>
+> 下载校验（SHA256）：`xianzhi.db` = `a4b694afbae542a95319f150fc0b26cffdf61474496bbd1f248f23e424428bf1`；`xianzhi-mcp.exe` = `4302a7dd517b5069e7b53672927a5a8684b7de506b60ee36464dfca0976619e2`。
 
 ### 方式 B：用西安地方志 Windows 版自带的数据库
 
